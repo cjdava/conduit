@@ -16,7 +16,7 @@ public sealed class StreamingEtlPipelineTests
     {
         var transformed = new List<int>();
         var pipeline = StreamingEtlPipelineBuilder
-            .WithExtractor(new InMemoryExtractor<int>([1, 2, 3]))
+            .WithExtractor(new InMemoryStreamingExtractor<int>([1, 2, 3]))
             .WithTransformCallback(n => { transformed.Add(n); return n * 10; })
             .WithLoadCallback(_ => { });
 
@@ -30,7 +30,7 @@ public sealed class StreamingEtlPipelineTests
     {
         var loaded = new List<string>();
         var pipeline = StreamingEtlPipelineBuilder
-            .WithExtractor(new InMemoryExtractor<int>([1, 2, 3]))
+            .WithExtractor(new InMemoryStreamingExtractor<int>([1, 2, 3]))
             .WithTransformCallback(n => $"item-{n}")
             .WithLoadCallback((string s) => loaded.Add(s));
 
@@ -47,7 +47,7 @@ public sealed class StreamingEtlPipelineTests
         bus.Subscribe<RowProcessedEvent<int>>(e => rowEvents.Add(e));
 
         var pipeline = StreamingEtlPipelineBuilder
-            .WithExtractor(new InMemoryExtractor<int>([10, 20, 30]))
+            .WithExtractor(new InMemoryStreamingExtractor<int>([10, 20, 30]))
             .WithEventBus(bus)
             .WithTransformCallback(n => n)
             .WithLoadCallback(_ => { });
@@ -71,7 +71,7 @@ public sealed class StreamingEtlPipelineTests
         bus.Subscribe<PipelineCompletedEvent>(e => completed = e);
 
         var pipeline = StreamingEtlPipelineBuilder
-            .WithExtractor(new InMemoryExtractor<int>([1]))
+            .WithExtractor(new InMemoryStreamingExtractor<int>([1]))
             .WithName("TestPipeline")
             .WithEventBus(bus)
             .WithTransformCallback(n => n)
@@ -90,7 +90,7 @@ public sealed class StreamingEtlPipelineTests
     {
         var bus = MakeBus();
         var pipeline = StreamingEtlPipelineBuilder
-            .WithExtractor(new InMemoryExtractor<int>([1, 2]))
+            .WithExtractor(new InMemoryStreamingExtractor<int>([1, 2]))
             .WithEventBus(bus)
             .WithTransformCallback<int>(n =>
             {
@@ -113,7 +113,7 @@ public sealed class StreamingEtlPipelineTests
         bus.Subscribe<PipelineFailedEvent>(e => failed = e);
 
         var pipeline = StreamingEtlPipelineBuilder
-            .WithExtractor(new InMemoryExtractor<int>([1]))
+            .WithExtractor(new InMemoryStreamingExtractor<int>([1]))
             .WithEventBus(bus)
             .WithTransformCallback<int>(_ => throw new Exception("boom"))
             .WithLoadCallback(_ => { });

@@ -127,7 +127,7 @@ bus.Subscribe<RowProcessedEvent<string>>(e =>
     Console.WriteLine($"  [row #{e.RowIndex}] processed → {e.Row}"));
 
 var streamingPipeline = StreamingEtlPipelineBuilder
-    .WithExtractor(new InMemoryExtractor<int>(Enumerable.Range(1, 5), source: "Range(1,5)"))
+    .WithExtractor(new InMemoryStreamingExtractor<int>(Enumerable.Range(1, 5), source: "Range(1,5)"))
     .WithName("Streaming Demo")
     .WithEventBus(bus)
     // transform callback — called for each row individually

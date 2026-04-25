@@ -20,18 +20,18 @@ namespace Conduit.Pipeline;
 public static class StreamingEtlPipelineBuilder
 {
     public static StreamingEtlPipelineBuilder<TExtracted> WithExtractor<TExtracted>(
-        IExtractor<TExtracted> extractor)
+        IStreamingExtractor<TExtracted> extractor)
         => new(extractor);
 }
 
 /// <summary>Builder state after the extractor has been set.</summary>
 public sealed class StreamingEtlPipelineBuilder<TExtracted>
 {
-    private readonly IExtractor<TExtracted> _extractor;
+    private readonly IStreamingExtractor<TExtracted> _extractor;
     private string _name = "StreamingEtlPipeline";
     private IEventBus _eventBus = new InMemoryEventBus();
 
-    internal StreamingEtlPipelineBuilder(IExtractor<TExtracted> extractor)
+    internal StreamingEtlPipelineBuilder(IStreamingExtractor<TExtracted> extractor)
         => _extractor = extractor;
 
     public StreamingEtlPipelineBuilder<TExtracted> WithName(string name)
@@ -59,13 +59,13 @@ public sealed class StreamingEtlPipelineBuilder<TExtracted, TTransformed>
 {
     private readonly string _name;
     private readonly IEventBus _eventBus;
-    private readonly IExtractor<TExtracted> _extractor;
+    private readonly IStreamingExtractor<TExtracted> _extractor;
     private readonly Func<TExtracted, TTransformed> _transformCallback;
 
     internal StreamingEtlPipelineBuilder(
         string name,
         IEventBus eventBus,
-        IExtractor<TExtracted> extractor,
+        IStreamingExtractor<TExtracted> extractor,
         Func<TExtracted, TTransformed> transformCallback)
     {
         _name = name;

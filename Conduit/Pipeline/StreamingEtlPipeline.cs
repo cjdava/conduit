@@ -21,7 +21,7 @@ namespace Conduit.Pipeline;
 /// </summary>
 public sealed class StreamingEtlPipeline<TExtracted, TTransformed> : IEtlPipeline
 {
-    private readonly IExtractor<TExtracted> _extractor;
+    private readonly IStreamingExtractor<TExtracted> _extractor;
     private readonly Func<TExtracted, TTransformed> _transformCallback;
     private readonly Func<TTransformed, CancellationToken, Task> _loadCallback;
     private readonly IEventBus _eventBus;
@@ -31,7 +31,7 @@ public sealed class StreamingEtlPipeline<TExtracted, TTransformed> : IEtlPipelin
 
     internal StreamingEtlPipeline(
         string name,
-        IExtractor<TExtracted> extractor,
+        IStreamingExtractor<TExtracted> extractor,
         Func<TExtracted, TTransformed> transformCallback,
         Func<TTransformed, CancellationToken, Task> loadCallback,
         IEventBus eventBus)
@@ -48,37 +48,32 @@ public sealed class StreamingEtlPipeline<TExtracted, TTransformed> : IEtlPipelin
         var sw = Stopwatch.StartNew();
         await _eventBus.PublishAsync(new PipelineStartedEvent(Id, Name), cancellationToken);
 
-        var currentStage = "Extract";
         try
         {
-            // ── Extract all records first ──────────────────────────────────────────
-            var records = await _extractor.ExtractAsync(cancellationToken);
-            await _eventBus.PublishAsync(
-                new StageCompletedEvent(Id, "Extract", records.Count, _extractor.Source), cancellationToken);
-
-            // ── Row-by-row: transform callback → load callback ─────────────────────
-            currentStage = "Transform+Load";
+            // ── Row-by-row: extract → transform → load, one record at a time ──────
+            // No list is ever built. Each record flows through the full chain before
+            // the next one is read from the source.
+            var rowIndex = 0;
             var loadedCount = 0;
 
-            for (var i = 0; i < records.Count; i++)
+            await foreach (var row in _extractor.ExtractAsync(cancellationToken))
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                // 1. Transform callback — called for this row only
+                var transformed = _transformCallback(row);
 
-                // 1. Transform callback — called for every row
-                var transformed = _transformCallback(records[i]);
-
-                // 2. Load callback — called immediately after the row is transformed
+                // 2. Load callback — called immediately; transformed value is discarded after
                 await _loadCallback(transformed, cancellationToken);
-
                 loadedCount++;
 
                 // 3. Notify observers about this specific row
                 await _eventBus.PublishAsync(
-                    new RowProcessedEvent<TTransformed>(Id, transformed, i), cancellationToken);
+                    new RowProcessedEvent<TTransformed>(Id, transformed, rowIndex), cancellationToken);
+
+                rowIndex++;
             }
 
             sw.Stop();
-            var result = PipelineResult.Success(records.Count, records.Count, loadedCount, sw.Elapsed);
+            var result = PipelineResult.Success(rowIndex, rowIndex, loadedCount, sw.Elapsed);
             await _eventBus.PublishAsync(new PipelineCompletedEvent(Id, sw.Elapsed, loadedCount), cancellationToken);
 
             return result;
@@ -91,8 +86,8 @@ public sealed class StreamingEtlPipeline<TExtracted, TTransformed> : IEtlPipelin
         {
             sw.Stop();
             await _eventBus.PublishAsync(
-                new PipelineFailedEvent(Id, ex, currentStage, sw.Elapsed), cancellationToken);
-            return PipelineResult.Failure(ex, currentStage, sw.Elapsed);
+                new PipelineFailedEvent(Id, ex, "Transform+Load", sw.Elapsed), cancellationToken);
+            return PipelineResult.Failure(ex, "Transform+Load", sw.Elapsed);
         }
     }
 }
