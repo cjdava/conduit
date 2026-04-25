@@ -254,17 +254,54 @@ new SequentialTransformer<RawRow, RawRow, Product>(filterStep, mapStep)
 
 ---
 
-## Running the demos
+## Benchmark CSV data
+
+The benchmark CSV files are **not committed to git** (they range from ~60 MB to ~6 GB). Generate them once with the included Python script before running the demo:
 
 ```bash
-dotnet run --project Conduit/Conduit.csproj
+# From the repo root (conduit/)
+python scripts/generate_csv.py
 ```
 
-Four demos run in sequence:
-1. **Filter even numbers** — basic batch pipeline with an `InMemoryExtractor`
-2. **Senior engineers from CSV** — reads `employees.csv`, chains filters, loads into memory
-3. **Failure handling** — demonstrates `PipelineFailedEvent` when a transform throws
-4. **Streaming pipeline with callbacks** — uses `InMemoryStreamingExtractor`; each row flows extract → transform → load before the next row is read; `RowProcessedEvent` fires per row
+This writes four files to `Conduit/data/`:
+
+| File | Rows |
+|---|---|
+| `employees_1m.csv` | 1,000,000 |
+| `employees_10m.csv` | 10,000,000 |
+| `employees_50m.csv` | 50,000,000 |
+| `employees_100m.csv` | 100,000,000 |
+
+> ⚠️ **Out-of-memory warning:** The **batch** pipeline loads the entire file into a `List<T>` before processing. At large scales this can exhaust available RAM and crash the process with an `OutOfMemoryException`:
+> - `employees_50m.csv` (~1.7 GB on disk) requires **~8–10 GB** of heap during the batch run.
+> - `employees_100m.csv` (~3.5 GB on disk) requires **~16–20 GB** — it **will OOM** on most consumer machines.
+>
+> The **streaming** pipeline is not affected — it holds only one row in memory at a time and will complete successfully at any scale.
+>
+> If your machine has less than 16 GB of free RAM, comment out the larger sizes in `Program.cs` before running, or only run the streaming pipeline for those sizes.
+
+---
+
+## Running the demos
+
+Generate the CSV data first (see above), then:
+
+```bash
+# Run both batch and streaming (default)
+dotnet run -c Release --project Conduit/Conduit.csproj
+
+# Run only the batch pipeline
+dotnet run -c Release --project Conduit/Conduit.csproj -- --batch
+
+# Run only the streaming pipeline
+dotnet run -c Release --project Conduit/Conduit.csproj -- --stream
+```
+
+The benchmark iterates each enabled CSV file through the selected pipeline(s):
+- **Batch** (`CsvExtractor`) — reads the whole file into a list first, then transforms + loads. Memory spikes proportionally to file size.
+- **Streaming** (`CsvStreamingExtractor`) — reads line-by-line via `IAsyncEnumerable<T>`; only one row is in memory at a time. Memory stays flat regardless of file size.
+
+If a CSV file is missing the run skips it and prints a reminder to run the generator script.
 
 ## Running the tests
 

@@ -33,3 +33,6 @@ TestResults/
 # NuGet
 *.nupkg
 .nuget/
+
+# Benchmark CSV data files (generate with scripts/generate_csv.py)
+Conduit/data/*.csv
