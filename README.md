@@ -49,7 +49,7 @@ ObserverPattern/
 │   │   ├── ConsoleLoggingHandler   # Observer: logs all pipeline lifecycle events
 │   │   └── DelegateEventHandler    # Wraps a lambda as an IEventHandler
 │   └── data/
-│       └── employees.csv       # Sample data used in the demos
+│       └── employees_1m.csv    # Generated benchmark data (git-ignored — run scripts/generate_csv.py)
 └── Conduit.Tests/         # 38 xunit tests
 ```
 
@@ -198,7 +198,7 @@ Console.WriteLine($"Rows processed: {rowTracker.ProcessedCount}");
 
 ```csharp
 var pipeline = ConduitPipelineBuilder
-    .WithExtractor(new CsvExtractor("employees.csv"))
+    .WithExtractor(new CsvExtractor("data/employees_1m.csv"))
     .WithName("Senior Engineers Pipeline")
     .WithEventBus(bus)
     .WithTransformer(
