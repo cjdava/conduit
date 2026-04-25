@@ -23,7 +23,7 @@ ObserverPattern/
 ├── Conduit/               # Main application
 │   ├── Core/
 │   │   ├── Events/             # All event types published during a pipeline run
-│   │   ├── Interfaces/         # IEventBus, IEventHandler, IExtractor, ITransformer, ILoader, IConduitPipeline
+│   │   ├── Interfaces/         # IEventBus, IEventHandler, IExtractor, IStreamingExtractor, ITransformer, ILoader, IConduitPipeline
 │   │   └── Models/             # PipelineResult
 │   ├── EventBus/
 │   │   └── InMemoryEventBus    # In-process event bus (the Observable subject)
@@ -33,8 +33,10 @@ ObserverPattern/
 │   │   ├── StreamingConduitPipeline    # Row-by-row pipeline — each record triggers callbacks
 │   │   └── StreamingConduitPipelineBuilder
 │   ├── Extractors/
-│   │   ├── InMemoryExtractor   # Returns a pre-supplied list (useful for testing)
-│   │   └── CsvExtractor        # Reads rows from a CSV file
+│   │   ├── InMemoryExtractor           # Returns a pre-supplied list (batch pipelines / testing)
+│   │   ├── CsvExtractor                # Reads all rows from a CSV file into a list (batch)
+│   │   ├── InMemoryStreamingExtractor  # Yields items one-by-one from an IEnumerable (streaming)
+│   │   └── CsvStreamingExtractor       # Reads a CSV file line-by-line — only one row in memory at a time
 │   ├── Transformers/
 │   │   ├── DelegateTransformer     # Applies a mapping function to every record
 │   │   ├── FilterTransformer       # Keeps only records matching a predicate
@@ -97,20 +99,20 @@ All records move through the three stages together.
 
 ### Streaming pipeline (`StreamingConduitPipeline`)
 
-Each extracted record individually passes through the transform and load **callbacks** before the next record begins. A `RowProcessedEvent` fires after every row.
+Each record is extracted, transformed, and loaded **one at a time** — no list is ever built anywhere in the chain. The source yields rows through `IAsyncEnumerable<T>`, so the next row is not even read from the source until the current one has finished loading.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │            StreamingConduitPipeline.RunAsync()              │
 │                                                             │
-│  IExtractor.ExtractAsync()  ──► all records loaded once     │
-│       │  publishes: PipelineStartedEvent                    │
-│       │             StageCompletedEvent (Extract)           │
-│       ▼                                                     │
-│  for each row:                                              │
-│    transformCallback(row)   ──► your lambda, called here    │
-│    loadCallback(transformed)──► your lambda, called here    │
-│    publishes: RowProcessedEvent<TTransformed>               │
+│  publishes: PipelineStartedEvent                            │
+│                                                             │
+│  await foreach row in IStreamingExtractor.ExtractAsync()    │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  transformCallback(row)   ──► your delegate/lambda  │   │
+│  │  loadCallback(transformed)──► your delegate/lambda  │   │
+│  │  publishes: RowProcessedEvent<TTransformed>         │   │
+│  └──────────────── repeated per row ───────────────────┘   │
 │                                                             │
 │  publishes: PipelineCompletedEvent  ──► success             │
 │          or PipelineFailedEvent     ──► on error            │
@@ -118,6 +120,8 @@ Each extracted record individually passes through the transform and load **callb
 │  returns PipelineResult                                     │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Memory profile:** only the current row and its transformed value exist on the heap during processing. Every previous row is eligible for garbage collection before the next row is read.
 
 ---
 
@@ -129,7 +133,7 @@ Each extracted record individually passes through the transform and load **callb
 | `StageCompletedEvent` | After Extract, Transform, or Load finishes |
 | `DataExtractedEvent<T>` | After Extract, carries the raw records |
 | `DataTransformedEvent<T>` | After Transform, carries the transformed records |
-| `RowProcessedEvent<T>` | After each individual row in a streaming pipeline |
+| `RowProcessedEvent<T>` | After each individual row in a streaming pipeline — carries the transformed value and its zero-based index |
 | `PipelineCompletedEvent` | Successful end of a pipeline run |
 | `PipelineFailedEvent` | Unrecoverable error in any stage |
 
@@ -210,20 +214,24 @@ Console.WriteLine(result); // Success | Extracted=8 Transformed=3 Loaded=3 Durat
 
 ### Streaming pipeline with per-row callbacks
 
+Use `IStreamingExtractor<T>` as the source — rows are yielded one at a time via `IAsyncEnumerable<T>`, so no full list is ever built.
+
 ```csharp
 var pipeline = StreamingConduitPipelineBuilder
-    .WithExtractor(new CsvExtractor("orders.csv"))
+    .WithExtractor(new CsvStreamingExtractor("orders.csv"))  // line-by-line, no list
     .WithName("Order Import")
     .WithEventBus(bus)
-    .WithTransformCallback(row => MapToOrder(row))   // called for each row
-    .WithLoadCallback(order => SaveOrder(order));     // called immediately after
+    .WithTransformCallback(row => MapToOrder(row))   // delegate: called per row
+    .WithLoadCallback(order => SaveOrder(order));     // delegate: called immediately after
 
-// React to each individual row as it completes
+// Observer: reacts to each individual row as it completes
 bus.Subscribe<RowProcessedEvent<Order>>(e =>
     Console.WriteLine($"Row #{e.RowIndex} → {e.Row.Id}"));
 
 PipelineResult result = await pipeline.RunAsync();
 ```
+
+> **Tip:** for in-memory sequences (tests, demos) use `InMemoryStreamingExtractor<T>` instead.
 
 ### Using built-in transformers
 
@@ -249,19 +257,19 @@ new SequentialTransformer<RawRow, RawRow, Product>(filterStep, mapStep)
 ## Running the demos
 
 ```bash
-dotnet run --project ObserverPattern/Conduit/Conduit.csproj
+dotnet run --project Conduit/Conduit.csproj
 ```
 
 Four demos run in sequence:
 1. **Filter even numbers** — basic batch pipeline with an `InMemoryExtractor`
 2. **Senior engineers from CSV** — reads `employees.csv`, chains filters, loads into memory
 3. **Failure handling** — demonstrates `PipelineFailedEvent` when a transform throws
-4. **Streaming pipeline with callbacks** — per-row transform and load, with `RowProcessedEvent` output
+4. **Streaming pipeline with callbacks** — uses `InMemoryStreamingExtractor`; each row flows extract → transform → load before the next row is read; `RowProcessedEvent` fires per row
 
 ## Running the tests
 
 ```bash
-dotnet test ObserverPattern/Conduit.Tests/Conduit.Tests.csproj
+dotnet test Conduit.Tests/Conduit.Tests.csproj
 ```
 
 38 tests covering the event bus, all transformer types, extractors, loaders, the streaming pipeline, and callback handlers.
