@@ -303,6 +303,139 @@ The benchmark iterates each enabled CSV file through the selected pipeline(s):
 
 If a CSV file is missing the run skips it and prints a reminder to run the generator script.
 
+---
+
+## Integrating with Clean Architecture
+
+Because every moving part of Conduit is hidden behind an interface (`IExtractor<T>`, `ITransformer<TIn,TOut>`, `ILoader<T>`, `IEventBus`), the framework maps directly onto Clean Architecture's dependency rule — outer layers depend inward, never the other way around.
+
+### Layer responsibilities
+
+| Layer | What lives here |
+|---|---|
+| **Domain** | Your business entities and value objects. Zero knowledge of Conduit. |
+| **Application** | Use-case classes that depend only on the Conduit *interfaces*. No concrete types imported. |
+| **Infrastructure** | Concrete Conduit implementations: `CsvExtractor`, `SqlLoader`, `SequentialTransformer`, etc. |
+| **Composition root** | `Program.cs` or your DI container — wires interfaces to implementations and builds pipelines. |
+
+### Example
+
+**Domain** — pure business entity, no framework dependency:
+
+```csharp
+// Domain/Entities/Employee.cs
+public record Employee(int Id, string Name, string Department, decimal Salary);
+```
+
+**Application** — use case depends only on abstractions:
+
+```csharp
+// Application/UseCases/ImportEmployeesUseCase.cs
+public class ImportEmployeesUseCase
+{
+    private readonly IExtractor<Employee> _extractor;
+    private readonly ILoader<Employee> _loader;
+    private readonly IEventBus _eventBus;
+
+    public ImportEmployeesUseCase(
+        IExtractor<Employee> extractor,
+        ILoader<Employee> loader,
+        IEventBus eventBus)
+    {
+        _extractor = extractor;
+        _loader    = loader;
+        _eventBus  = eventBus;
+    }
+
+    public Task<PipelineResult> ExecuteAsync(CancellationToken ct = default)
+        => EtlPipelineBuilder
+            .WithExtractor(_extractor)
+            .WithName("Import Employees")
+            .WithEventBus(_eventBus)
+            .WithTransformer(new DelegateTransformer<Employee, Employee>(e => e))
+            .WithLoader(_loader)
+            .RunAsync(ct);
+}
+```
+
+**Infrastructure** — concrete implementations wired up here, invisible to the application layer:
+
+```csharp
+// Infrastructure/Extractors/EmployeeCsvExtractor.cs
+public sealed class EmployeeCsvExtractor : IExtractor<Employee>
+{
+    private readonly CsvExtractor _inner;
+    public string Source => _inner.Source;
+
+    public EmployeeCsvExtractor(string filePath)
+        => _inner = new CsvExtractor(filePath);
+
+    public async Task<IReadOnlyList<Employee>> ExtractAsync(CancellationToken ct = default)
+    {
+        var rows = await _inner.ExtractAsync(ct);
+        return rows.Select(r => new Employee(
+            int.Parse(r["Id"]),
+            r["Name"],
+            r["Department"],
+            decimal.Parse(r["Salary"])
+        )).ToList();
+    }
+}
+
+// Infrastructure/Loaders/SqlEmployeeLoader.cs
+public sealed class SqlEmployeeLoader : ILoader<Employee>
+{
+    private readonly string _connectionString;
+    public SqlEmployeeLoader(string connectionString) => _connectionString = connectionString;
+
+    public async Task LoadAsync(IReadOnlyList<Employee> records, CancellationToken ct = default)
+    {
+        // bulk insert via Dapper, EF Core, etc.
+    }
+}
+```
+
+**Composition root** — registers everything and the application layer never changes when you swap implementations:
+
+```csharp
+// Program.cs (or Startup / DI registration)
+services.AddScoped<IExtractor<Employee>>(_ =>
+    new EmployeeCsvExtractor("data/employees_1m.csv"));
+
+services.AddScoped<ILoader<Employee>, SqlEmployeeLoader>();
+services.AddSingleton<IEventBus, InMemoryEventBus>();
+services.AddScoped<ImportEmployeesUseCase>();
+```
+
+### Streaming variant
+
+For large files, swap the use case to `IStreamingExtractor<T>` — the application layer still has no knowledge of CSV files or Conduit internals:
+
+```csharp
+// Application/UseCases/StreamEmployeesUseCase.cs
+public class StreamEmployeesUseCase(
+    IStreamingExtractor<Employee> extractor,
+    IEventBus eventBus)
+{
+    public Task<PipelineResult> ExecuteAsync(CancellationToken ct = default)
+        => StreamingEtlPipelineBuilder
+            .WithExtractor(extractor)
+            .WithName("Stream Employees")
+            .WithEventBus(eventBus)
+            .WithTransformCallback(e => e)
+            .WithLoadCallback((e, _) => SaveAsync(e))
+            .RunAsync(ct);
+
+    private Task SaveAsync(Employee e) => Task.CompletedTask; // your persistence call
+}
+```
+
+### Key benefit
+
+Swapping `CsvExtractor` for an `ApiExtractor`, or `SqlEmployeeLoader` for a `MongoLoader`, requires **zero changes** to your Domain or Application layers. You only update the Infrastructure and composition root.
+
+---
+
 ## Running the tests
 
 ```bash
