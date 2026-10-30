@@ -44,40 +44,50 @@ public sealed class EtlPipeline<TExtracted, TTransformed> : IEtlPipeline
 
     public async Task<PipelineResult> RunAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var sw = Stopwatch.StartNew();
-        await _eventBus.PublishAsync(new PipelineStartedEvent(Id, Name), cancellationToken);
+        var notifications = new PipelineNotifications(_eventBus);
+        var extractedCount = 0;
+        var transformedCount = 0;
+        var loadedCount = 0;
+        await notifications.PublishAsync(new PipelineStartedEvent(Id, Name), cancellationToken);
 
         var currentStage = "Extract";
         try
         {
             // ── Extract ────────────────────────────────────────────────────────────
             currentStage = "Extract";
+            cancellationToken.ThrowIfCancellationRequested();
             var extracted = await _extractor.ExtractAsync(cancellationToken);
-            await _eventBus.PublishAsync(
+            extractedCount = extracted.Count;
+            await notifications.PublishAsync(
                 new DataExtractedEvent<TExtracted>(Id, extracted, _extractor.Source), cancellationToken);
-            await _eventBus.PublishAsync(
+            await notifications.PublishAsync(
                 new StageCompletedEvent(Id, "Extract", extracted.Count, _extractor.Source), cancellationToken);
 
             // ── Transform ──────────────────────────────────────────────────────────
             currentStage = "Transform";
+            cancellationToken.ThrowIfCancellationRequested();
             var transformed = await _transformer.TransformAsync(extracted, cancellationToken);
-            await _eventBus.PublishAsync(
+            transformedCount = transformed.Count;
+            await notifications.PublishAsync(
                 new DataTransformedEvent<TTransformed>(Id, transformed), cancellationToken);
-            await _eventBus.PublishAsync(
+            await notifications.PublishAsync(
                 new StageCompletedEvent(Id, "Transform", transformed.Count), cancellationToken);
 
             // ── Load ───────────────────────────────────────────────────────────────
             currentStage = "Load";
+            cancellationToken.ThrowIfCancellationRequested();
             var loaded = await _loader.LoadAsync(transformed, cancellationToken);
-            await _eventBus.PublishAsync(
+            loadedCount = loaded;
+            await notifications.PublishAsync(
                 new StageCompletedEvent(Id, "Load", loaded, _loader.Destination), cancellationToken);
 
             sw.Stop();
-            var result = PipelineResult.Success(extracted.Count, transformed.Count, loaded, sw.Elapsed);
-            await _eventBus.PublishAsync(
+            await notifications.PublishAsync(
                 new PipelineCompletedEvent(Id, sw.Elapsed, loaded), cancellationToken);
 
-            return result;
+            return PipelineResult.Success(extractedCount, transformedCount, loadedCount, sw.Elapsed, notifications.Errors);
         }
         catch (OperationCanceledException)
         {
@@ -86,9 +96,10 @@ public sealed class EtlPipeline<TExtracted, TTransformed> : IEtlPipeline
         catch (Exception ex)
         {
             sw.Stop();
-            await _eventBus.PublishAsync(
+            await notifications.PublishAsync(
                 new PipelineFailedEvent(Id, ex, currentStage, sw.Elapsed), cancellationToken);
-            return PipelineResult.Failure(ex, currentStage, sw.Elapsed);
+            return PipelineResult.Failure(ex, currentStage, sw.Elapsed, extractedCount, transformedCount, loadedCount, notifications.Errors);
         }
     }
 }
+

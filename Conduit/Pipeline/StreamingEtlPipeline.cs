@@ -45,8 +45,13 @@ public sealed class StreamingEtlPipeline<TExtracted, TTransformed> : IEtlPipelin
 
     public async Task<PipelineResult> RunAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var sw = Stopwatch.StartNew();
-        await _eventBus.PublishAsync(new PipelineStartedEvent(Id, Name), cancellationToken);
+        var notifications = new PipelineNotifications(_eventBus);
+        var extractedCount = 0;
+        var transformedCount = 0;
+        var loadedCount = 0;
+        await notifications.PublishAsync(new PipelineStartedEvent(Id, Name), cancellationToken);
 
         try
         {
@@ -54,29 +59,31 @@ public sealed class StreamingEtlPipeline<TExtracted, TTransformed> : IEtlPipelin
             // No list is ever built. Each record flows through the full chain before
             // the next one is read from the source.
             var rowIndex = 0;
-            var loadedCount = 0;
 
             await foreach (var row in _extractor.ExtractAsync(cancellationToken))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                extractedCount++;
                 // 1. Transform callback — called for this row only
                 var transformed = _transformCallback(row);
+                transformedCount++;
 
                 // 2. Load callback — called immediately; transformed value is discarded after
+                cancellationToken.ThrowIfCancellationRequested();
                 await _loadCallback(transformed, cancellationToken);
                 loadedCount++;
 
                 // 3. Notify observers about this specific row
-                await _eventBus.PublishAsync(
+                await notifications.PublishAsync(
                     new RowProcessedEvent<TTransformed>(Id, transformed, rowIndex), cancellationToken);
 
                 rowIndex++;
             }
 
             sw.Stop();
-            var result = PipelineResult.Success(rowIndex, rowIndex, loadedCount, sw.Elapsed);
-            await _eventBus.PublishAsync(new PipelineCompletedEvent(Id, sw.Elapsed, loadedCount), cancellationToken);
+            await notifications.PublishAsync(new PipelineCompletedEvent(Id, sw.Elapsed, loadedCount), cancellationToken);
 
-            return result;
+            return PipelineResult.Success(extractedCount, transformedCount, loadedCount, sw.Elapsed, notifications.Errors);
         }
         catch (OperationCanceledException)
         {
@@ -85,9 +92,10 @@ public sealed class StreamingEtlPipeline<TExtracted, TTransformed> : IEtlPipelin
         catch (Exception ex)
         {
             sw.Stop();
-            await _eventBus.PublishAsync(
+            await notifications.PublishAsync(
                 new PipelineFailedEvent(Id, ex, "Transform+Load", sw.Elapsed), cancellationToken);
-            return PipelineResult.Failure(ex, "Transform+Load", sw.Elapsed);
+            return PipelineResult.Failure(ex, "Transform+Load", sw.Elapsed, extractedCount, transformedCount, loadedCount, notifications.Errors);
         }
     }
 }
+
