@@ -64,8 +64,9 @@ var configs = new[]
     (label: "100M", file: "data/employees_100m.csv"),
 };
 
-foreach (var (label, file) in configs)
+foreach (var (label, relativeFile) in configs)
 {
+    var file = Path.Combine(AppContext.BaseDirectory, relativeFile);
     if (!File.Exists(file))
     {
         Console.WriteLine($"\n  [SKIP] {file} not found — run scripts/generate_csv.py first.");
@@ -132,4 +133,5 @@ foreach (var (label, file) in configs)
         Console.WriteLine($"    Processed  : {streamProcessed:N0}");
     }
 }
+
 

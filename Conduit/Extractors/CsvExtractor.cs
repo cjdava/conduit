@@ -34,6 +34,7 @@ public sealed class CsvExtractor : IExtractor<Dictionary<string, string>>
 
         for (var i = 1; i < lines.Length; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrWhiteSpace(lines[i]))
                 continue;
 
@@ -49,3 +50,4 @@ public sealed class CsvExtractor : IExtractor<Dictionary<string, string>>
         return records;
     }
 }
+

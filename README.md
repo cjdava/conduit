@@ -443,3 +443,14 @@ dotnet test Conduit.Tests/Conduit.Tests.csproj
 ```
 
 38 tests covering the event bus, all transformer types, extractors, loaders, the streaming pipeline, and callback handlers.
+
+## Processing failures and observer errors
+
+Pipelines check cancellation before processing begins and between processing stages or rows. Cancellation propagates as `OperationCanceledException`. Built-in batch mapping and filtering also check cancellation while iterating.
+
+Observer failures do not change the ETL processing outcome. Inspect `result.NotificationErrors` for exceptions raised while publishing lifecycle, stage, or row notifications. Direct calls to `IEventBus.PublishAsync` still propagate handler errors. Notifications are awaited, so slow observers can still delay a run.
+
+On a processing failure, `PipelineResult` retains counts for completed stages and successfully loaded streaming rows. These counts do not imply rollback or exactly-once delivery: a loader that writes and then throws may have additional side effects that the pipeline cannot count.
+
+Demo data paths are resolved relative to the executable output directory. The project copies generated `Conduit/data` files there when building, so the documented repository-root commands can locate them.
+

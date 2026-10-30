@@ -19,7 +19,9 @@ public sealed class InMemoryLoader<T> : ILoader<T>
 
     public Task<int> LoadAsync(IReadOnlyList<T> records, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         _store.AddRange(records);
         return Task.FromResult(records.Count);
     }
 }
+

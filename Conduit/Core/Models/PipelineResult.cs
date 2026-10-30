@@ -6,6 +6,8 @@ namespace Conduit.Core.Models;
 public sealed class PipelineResult
 {
     public bool IsSuccess { get; }
+    /// <summary>Observer failures, separate from the ETL processing outcome.</summary>
+    public IReadOnlyList<Exception> NotificationErrors { get; }
     public int RecordsExtracted { get; }
     public int RecordsTransformed { get; }
     public int RecordsLoaded { get; }
@@ -20,9 +22,11 @@ public sealed class PipelineResult
         int recordsLoaded,
         TimeSpan duration,
         Exception? error,
-        string? failedStage)
+        string? failedStage,
+        IReadOnlyList<Exception>? notificationErrors)
     {
         IsSuccess = isSuccess;
+        NotificationErrors = Array.AsReadOnly(notificationErrors?.ToArray() ?? Array.Empty<Exception>());
         RecordsExtracted = recordsExtracted;
         RecordsTransformed = recordsTransformed;
         RecordsLoaded = recordsLoaded;
@@ -35,17 +39,23 @@ public sealed class PipelineResult
         int recordsExtracted,
         int recordsTransformed,
         int recordsLoaded,
-        TimeSpan duration)
-        => new(true, recordsExtracted, recordsTransformed, recordsLoaded, duration, null, null);
+        TimeSpan duration,
+        IReadOnlyList<Exception>? notificationErrors = null)
+        => new(true, recordsExtracted, recordsTransformed, recordsLoaded, duration, null, null, notificationErrors);
 
     public static PipelineResult Failure(
         Exception error,
         string failedStage,
-        TimeSpan duration)
-        => new(false, 0, 0, 0, duration, error, failedStage);
+        TimeSpan duration,
+        int recordsExtracted = 0,
+        int recordsTransformed = 0,
+        int recordsLoaded = 0,
+        IReadOnlyList<Exception>? notificationErrors = null)
+        => new(false, recordsExtracted, recordsTransformed, recordsLoaded, duration, error, failedStage, notificationErrors);
 
     public override string ToString() =>
         IsSuccess
             ? $"Success | Extracted={RecordsExtracted} Transformed={RecordsTransformed} Loaded={RecordsLoaded} Duration={Duration.TotalMilliseconds:F1}ms"
             : $"Failed at {FailedStage} | {Error?.Message} Duration={Duration.TotalMilliseconds:F1}ms";
 }
+

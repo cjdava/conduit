@@ -18,7 +18,14 @@ public sealed class FilterTransformer<T> : ITransformer<T, T>
     public Task<IReadOnlyList<T>> TransformAsync(
         IReadOnlyList<T> records, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<T> result = records.Where(_predicate).ToList();
-        return Task.FromResult(result);
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = new List<T>();
+        foreach (var record in records)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_predicate(record)) result.Add(record);
+        }
+        return Task.FromResult<IReadOnlyList<T>>(result);
     }
 }
+

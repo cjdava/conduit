@@ -18,5 +18,9 @@ public sealed class InMemoryExtractor<T> : IExtractor<T>
     }
 
     public Task<IReadOnlyList<T>> ExtractAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult(_records);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(_records);
+    }
 }
+

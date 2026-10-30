@@ -17,7 +17,14 @@ public sealed class DelegateTransformer<TIn, TOut> : ITransformer<TIn, TOut>
     public Task<IReadOnlyList<TOut>> TransformAsync(
         IReadOnlyList<TIn> records, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<TOut> result = records.Select(_map).ToList();
-        return Task.FromResult(result);
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = new List<TOut>();
+        foreach (var record in records)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            result.Add(_map(record));
+        }
+        return Task.FromResult<IReadOnlyList<TOut>>(result);
     }
 }
+

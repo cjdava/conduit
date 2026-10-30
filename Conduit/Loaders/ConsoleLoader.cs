@@ -11,9 +11,14 @@ public sealed class ConsoleLoader<T> : ILoader<T>
 
     public Task<int> LoadAsync(IReadOnlyList<T> records, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         foreach (var record in records)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             Console.WriteLine($"  [Load] {record}");
+        }
 
         return Task.FromResult(records.Count);
     }
 }
+
